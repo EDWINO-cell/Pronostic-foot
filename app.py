@@ -1,28 +1,18 @@
 """
 app.py — Robot de pronostic foot (application Streamlit)
-
-Interface web : deux champs pour les noms d'équipes + un bouton, qui affiche
-le pronostic (top 3 scores exacts, plus/moins 2.5 buts, BTTS).
-
-Modèle calibré championnat par championnat sur les 12 grands championnats
-couverts par football-data.org (voir calibrate_per_league.py pour le détail
-du backtesting).
-
-Déploiement : voir les instructions fournies séparément (GitHub + Streamlit
-Community Cloud). La clé API se configure dans les "Secrets" de l'application
-sur Streamlit Cloud, sous la forme :
-    FOOTBALL_DATA_KEY = "ton_token_ici"
 """
 
 import json
 import math
 import os
+import time
 import unicodedata
 
 import requests
 import streamlit as st
 
 API_BASE_URL = "https://api.football-data.org/v4"
+REQUEST_DELAY_SECONDS = 6.5
 MAX_GOALS = 6
 
 COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "DED", "PPL", "ELC", "BSA", "CL"]
@@ -44,7 +34,7 @@ MIN_MATCHES_MIXED = 6
 MIN_MATCHES_VENUE = 4
 
 
-def get_api_key() -> str:
+def get_api_key():
     if "FOOTBALL_DATA_KEY" in st.secrets:
         return st.secrets["FOOTBALL_DATA_KEY"]
     key = os.environ.get("FOOTBALL_DATA_KEY")
@@ -54,34 +44,38 @@ def get_api_key() -> str:
     return key
 
 
-def strip_accents(text: str) -> str:
+def strip_accents(text):
     normalized = unicodedata.normalize("NFKD", text)
     return "".join(c for c in normalized if not unicodedata.combining(c))
 
 
-def api_get(endpoint: str, params: dict | None = None) -> dict:
+def api_get(endpoint, params=None):
     headers = {"X-Auth-Token": get_api_key()}
-    response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=headers, params=params or {}, timeout=15)
-    if response.status_code != 200:
-        raise RuntimeError(f"Erreur API ({response.status_code}) sur {endpoint} : {response.text}")
-    return response.json()
+    for attempt in range(4):
+        response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=headers, params=params or {}, timeout=15)
+        if response.status_code == 429:
+            time.sleep(15)
+            continue
+        if response.status_code != 200:
+            raise RuntimeError(f"Erreur API ({response.status_code}) sur {endpoint} : {response.text}")
+        time.sleep(REQUEST_DELAY_SECONDS)
+        return response.json()
+    raise RuntimeError(f"Échec après plusieurs tentatives sur {endpoint} (limite de requêtes).")
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def build_team_directory() -> list:
+def build_team_directory():
     directory = []
     for code in COMPETITIONS:
         data = api_get(f"competitions/{code}/teams")
         for team in data.get("teams", []):
-            directory.append({
-                "id": team["id"], "name": team["name"],
-                "short_name": team.get("shortName", ""), "tla": team.get("tla", ""),
-                "competition_code": code,
-            })
+            directory.append({"id": team["id"], "name": team["name"],
+                               "short_name": team.get("shortName", ""),
+                               "tla": team.get("tla", ""), "competition_code": code})
     return directory
 
 
-def find_team(name: str, directory: list) -> dict | None:
+def find_team(name, directory):
     query = strip_accents(name).lower()
     candidates = []
     for team in directory:
@@ -91,14 +85,15 @@ def find_team(name: str, directory: list) -> dict | None:
     return candidates[0] if candidates else None
 
 
-def get_recent_matches(team_id: int, n: int = 20) -> list:
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_recent_matches(team_id, n=20):
     data = api_get(f"teams/{team_id}/matches", {"status": "FINISHED", "limit": n})
     matches = data.get("matches", [])
     matches.sort(key=lambda m: m["utcDate"])
     return matches
 
 
-def compute_form_mixed(team_id: int, matches: list) -> dict:
+def compute_form_mixed(team_id, matches):
     scored, conceded, played = 0, 0, 0
     for m in matches[-6:]:
         score = m.get("score", {}).get("fullTime", {})
@@ -115,7 +110,7 @@ def compute_form_mixed(team_id: int, matches: list) -> dict:
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def compute_form_home(team_id: int, matches: list) -> dict:
+def compute_form_home(team_id, matches):
     home_matches = [m for m in matches if m["homeTeam"]["id"] == team_id][-6:]
     scored, conceded, played = 0, 0, 0
     for m in home_matches:
@@ -131,7 +126,7 @@ def compute_form_home(team_id: int, matches: list) -> dict:
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def compute_form_away(team_id: int, matches: list) -> dict:
+def compute_form_away(team_id, matches):
     away_matches = [m for m in matches if m["awayTeam"]["id"] == team_id][-6:]
     scored, conceded, played = 0, 0, 0
     for m in away_matches:
@@ -147,13 +142,13 @@ def compute_form_away(team_id: int, matches: list) -> dict:
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def blended_value(mixed_value: float, venue_value, venue_played: int, alpha: float) -> float:
+def blended_value(mixed_value, venue_value, venue_played, alpha):
     if venue_value is None or venue_played < MIN_MATCHES_VENUE:
         return mixed_value
     return alpha * venue_value + (1 - alpha) * mixed_value
 
 
-def find_h2h_match_id(team1_id: int, team2_id: int):
+def find_h2h_match_id(team1_id, team2_id):
     data = api_get(f"teams/{team1_id}/matches", {"status": "SCHEDULED"})
     for m in data.get("matches", []):
         if m["homeTeam"]["id"] == team2_id or m["awayTeam"]["id"] == team2_id:
@@ -161,7 +156,7 @@ def find_h2h_match_id(team1_id: int, team2_id: int):
     return None
 
 
-def get_h2h(team1_id: int, team2_id: int, n: int = 5) -> dict:
+def get_h2h(team1_id, team2_id, n=5):
     match_id = find_h2h_match_id(team1_id, team2_id)
     if not match_id:
         return {"played": 0, "avg_total_goals": None}
@@ -179,14 +174,20 @@ def get_h2h(team1_id: int, team2_id: int, n: int = 5) -> dict:
     return {"played": played, "avg_total_goals": avg_goals}
 
 
-def get_standing(team_id: int, competition_code: str):
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_standings_table(competition_code):
     data = api_get(f"competitions/{competition_code}/standings")
     for table in data.get("standings", []):
-        if table.get("type") != "TOTAL":
-            continue
-        for row in table.get("table", []):
-            if row["team"]["id"] == team_id:
-                return {"rank": row["position"], "points": row["points"]}
+        if table.get("type") == "TOTAL":
+            return table.get("table", [])
+    return []
+
+
+def get_standing(team_id, competition_code):
+    table = get_standings_table(competition_code)
+    for row in table:
+        if row["team"]["id"] == team_id:
+            return {"rank": row["position"], "points": row["points"]}
     return None
 
 
@@ -201,11 +202,11 @@ def estimate_stakes_factor(standing1, standing2):
     return 1.0, f"enjeu faible (écart de {rank_gap} places au classement)"
 
 
-def poisson_pmf(k: int, lam: float) -> float:
+def poisson_pmf(k, lam):
     return (lam ** k) * math.exp(-lam) / math.factorial(k)
 
 
-def dixon_coles_tau(h: int, a: int, lh: float, la: float, rho: float) -> float:
+def dixon_coles_tau(h, a, lh, la, rho):
     if h == 0 and a == 0:
         return 1 - (lh * la * rho)
     elif h == 0 and a == 1:
@@ -217,7 +218,7 @@ def dixon_coles_tau(h: int, a: int, lh: float, la: float, rho: float) -> float:
     return 1.0
 
 
-def build_score_matrix(lambda_home: float, lambda_away: float, rho: float) -> dict:
+def build_score_matrix(lambda_home, lambda_away, rho):
     matrix = {}
     total = 0.0
     for h in range(MAX_GOALS + 1):
@@ -231,7 +232,7 @@ def build_score_matrix(lambda_home: float, lambda_away: float, rho: float) -> di
     return matrix
 
 
-def run_prediction(team1_name: str, team2_name: str) -> dict:
+def run_prediction(team1_name, team2_name):
     directory = build_team_directory()
     team1 = find_team(team1_name, directory)
     team2 = find_team(team2_name, directory)
@@ -294,8 +295,6 @@ def run_prediction(team1_name: str, team2_name: str) -> dict:
     }
 
 
-# ---------- Interface ----------
-
 st.set_page_config(page_title="Robot de pronostic foot", page_icon="⚽", layout="centered")
 
 st.title("⚽ Robot de pronostic foot")
@@ -312,7 +311,7 @@ if st.button("Prédire", type="primary", use_container_width=True):
     if not team1_input.strip() or not team2_input.strip():
         st.warning("Renseigne les deux équipes.")
     else:
-        with st.spinner("Analyse en cours..."):
+        with st.spinner("Analyse en cours... (peut prendre 30-60s la première fois)"):
             try:
                 result = run_prediction(team1_input.strip(), team2_input.strip())
             except ValueError as e:
@@ -326,8 +325,7 @@ if st.button("Prédire", type="primary", use_container_width=True):
             t1, t2 = result["team1"], result["team2"]
 
             if result["low_data_warning"]:
-                st.warning("Peu de matchs disponibles cette saison pour ces équipes — la prédiction sera peu précise "
-                           "(probablement début de saison).")
+                st.warning("Peu de matchs disponibles cette saison pour ces équipes — la prédiction sera peu précise.")
 
             st.subheader(f"{t1['name']} vs {t2['name']}")
 
@@ -364,4 +362,4 @@ if st.button("Prédire", type="primary", use_container_width=True):
 
 st.divider()
 st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
-           "naïve sur tous les championnats — voir le détail du backtesting du projet.")
+           "naïve sur tous les championnats.")
