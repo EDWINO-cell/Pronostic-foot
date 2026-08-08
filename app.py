@@ -511,4 +511,11 @@ if st.button("Prédire", type="primary", use_container_width=True):
             c2.metric("Moins de 2.5", f"{result['under_2_5'] * 100:.1f}%")
 
             st.markdown("### BTTS (les deux équipes marquent)")
+            c1, c2 = st.columns(2)
+            c1.metric("Oui", f"{result['btts_yes'] * 100:.1f}%")
+            c2.metric("Non", f"{result['btts_no'] * 100:.1f}%")
+
+st.divider()
+st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
+           "naïve sur tous les championnats — voir le détail du backtesting du projet.")
  
