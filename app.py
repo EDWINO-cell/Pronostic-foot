@@ -1,5 +1,15 @@
 """
 app.py — Robot de pronostic foot (application Streamlit)
+
+Interface web : deux champs pour les noms d'équipes + un bouton, qui affiche
+le pronostic (résultat le plus probable, top 3 scores exacts, plus/moins 2.5
+buts, BTTS). Modèle calibré championnat par championnat sur les 10 grands
+championnats couverts par football-data.org, avec analyse enrichie de l'enjeu
+du match (zones de classement réelles, phase de compétition, derbies).
+
+Déploiement : GitHub + Streamlit Community Cloud. La clé API se configure
+dans les "Secrets" de l'application sur Streamlit Cloud, sous la forme :
+    FOOTBALL_DATA_KEY = "ton_token_ici"
 """
 
 import json
@@ -12,7 +22,7 @@ import requests
 import streamlit as st
 
 API_BASE_URL = "https://api.football-data.org/v4"
-REQUEST_DELAY_SECONDS = 6.5
+REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
 MAX_GOALS = 6
 
 COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "DED", "PPL", "ELC", "BSA", "CL"]
@@ -34,7 +44,7 @@ MIN_MATCHES_MIXED = 6
 MIN_MATCHES_VENUE = 4
 
 
-def get_api_key():
+def get_api_key() -> str:
     if "FOOTBALL_DATA_KEY" in st.secrets:
         return st.secrets["FOOTBALL_DATA_KEY"]
     key = os.environ.get("FOOTBALL_DATA_KEY")
@@ -44,17 +54,17 @@ def get_api_key():
     return key
 
 
-def strip_accents(text):
+def strip_accents(text: str) -> str:
     normalized = unicodedata.normalize("NFKD", text)
     return "".join(c for c in normalized if not unicodedata.combining(c))
 
 
-def api_get(endpoint, params=None):
+def api_get(endpoint: str, params: dict | None = None) -> dict:
     headers = {"X-Auth-Token": get_api_key()}
     for attempt in range(4):
         response = requests.get(f"{API_BASE_URL}/{endpoint}", headers=headers, params=params or {}, timeout=15)
         if response.status_code == 429:
-            time.sleep(15)
+            time.sleep(15)  # limite de requêtes atteinte, on patiente puis on réessaie
             continue
         if response.status_code != 200:
             raise RuntimeError(f"Erreur API ({response.status_code}) sur {endpoint} : {response.text}")
@@ -64,18 +74,20 @@ def api_get(endpoint, params=None):
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
-def build_team_directory():
+def build_team_directory() -> list:
     directory = []
     for code in COMPETITIONS:
         data = api_get(f"competitions/{code}/teams")
         for team in data.get("teams", []):
-            directory.append({"id": team["id"], "name": team["name"],
-                               "short_name": team.get("shortName", ""),
-                               "tla": team.get("tla", ""), "competition_code": code})
+            directory.append({
+                "id": team["id"], "name": team["name"],
+                "short_name": team.get("shortName", ""), "tla": team.get("tla", ""),
+                "competition_code": code,
+            })
     return directory
 
 
-def find_team(name, directory):
+def find_team(name: str, directory: list) -> dict | None:
     query = strip_accents(name).lower()
     candidates = []
     for team in directory:
@@ -86,14 +98,14 @@ def find_team(name, directory):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def get_recent_matches(team_id, n=20):
+def get_recent_matches(team_id: int, n: int = 20) -> list:
     data = api_get(f"teams/{team_id}/matches", {"status": "FINISHED", "limit": n})
     matches = data.get("matches", [])
     matches.sort(key=lambda m: m["utcDate"])
     return matches
 
 
-def compute_form_mixed(team_id, matches):
+def compute_form_mixed(team_id: int, matches: list) -> dict:
     scored, conceded, played = 0, 0, 0
     for m in matches[-6:]:
         score = m.get("score", {}).get("fullTime", {})
@@ -110,7 +122,7 @@ def compute_form_mixed(team_id, matches):
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def compute_form_home(team_id, matches):
+def compute_form_home(team_id: int, matches: list) -> dict:
     home_matches = [m for m in matches if m["homeTeam"]["id"] == team_id][-6:]
     scored, conceded, played = 0, 0, 0
     for m in home_matches:
@@ -126,7 +138,7 @@ def compute_form_home(team_id, matches):
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def compute_form_away(team_id, matches):
+def compute_form_away(team_id: int, matches: list) -> dict:
     away_matches = [m for m in matches if m["awayTeam"]["id"] == team_id][-6:]
     scored, conceded, played = 0, 0, 0
     for m in away_matches:
@@ -142,13 +154,14 @@ def compute_form_away(team_id, matches):
     return {"avg_scored": scored / played, "avg_conceded": conceded / played, "played": played}
 
 
-def blended_value(mixed_value, venue_value, venue_played, alpha):
+def blended_value(mixed_value: float, venue_value, venue_played: int, alpha: float) -> float:
     if venue_value is None or venue_played < MIN_MATCHES_VENUE:
         return mixed_value
     return alpha * venue_value + (1 - alpha) * mixed_value
 
 
-def get_scheduled_match(team1_id, team2_id):
+def get_scheduled_match(team1_id: int, team2_id: int):
+    """Trouve le match programmé entre les deux équipes (pour le H2H et la phase de compétition : finale, demi, etc.)."""
     data = api_get(f"teams/{team1_id}/matches", {"status": "SCHEDULED"})
     for m in data.get("matches", []):
         if m["homeTeam"]["id"] == team2_id or m["awayTeam"]["id"] == team2_id:
@@ -156,7 +169,7 @@ def get_scheduled_match(team1_id, team2_id):
     return None
 
 
-def get_h2h(scheduled_match, n=5):
+def get_h2h(scheduled_match, n: int = 5) -> dict:
     if not scheduled_match:
         return {"played": 0, "avg_total_goals": None}
     data = api_get(f"matches/{scheduled_match['id']}/head2head", {"limit": n})
@@ -174,7 +187,7 @@ def get_h2h(scheduled_match, n=5):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def get_standings_table(competition_code):
+def get_standings_table(competition_code: str) -> list:
     data = api_get(f"competitions/{competition_code}/standings")
     for table in data.get("standings", []):
         if table.get("type") == "TOTAL":
@@ -182,7 +195,7 @@ def get_standings_table(competition_code):
     return []
 
 
-def get_standing(team_id, competition_code):
+def get_standing(team_id: int, competition_code: str):
     table = get_standings_table(competition_code)
     total_teams = len(table)
     for row in table:
@@ -191,6 +204,8 @@ def get_standing(team_id, competition_code):
     return None
 
 
+# Derbies connus (paires de fragments de noms, en minuscules sans accents).
+# Liste non exhaustive : les grandes rivalités des championnats couverts.
 DERBIES = [
     ("real madrid", "barcelona"), ("real madrid", "atletico"), ("atletico", "barcelona"),
     ("sevilla", "real betis"),
@@ -209,7 +224,7 @@ DERBIES = [
 ]
 
 
-def is_derby(name1, name2):
+def is_derby(name1: str, name2: str) -> bool:
     n1, n2 = strip_accents(name1).lower(), strip_accents(name2).lower()
     for frag1, frag2 in DERBIES:
         if (frag1 in n1 and frag2 in n2) or (frag2 in n1 and frag1 in n2):
@@ -217,6 +232,13 @@ def is_derby(name1, name2):
     return False
 
 
+# Règles réelles de qualification/relégation par championnat (saison 2025-26, vérifiées).
+# "cl" / "europa" / "conference" = nombre de places à partir du rang 1 (cumulatif).
+# "relegation" = nombre d'équipes reléguées directement. "relegation_playoff" = 1 si
+# une place supplémentaire dispute un barrage de maintien (juste au-dessus de la zone rouge).
+# Limite résiduelle assumée : certaines places "swing" (ex. Angleterre certaines saisons)
+# dépendent aussi des vainqueurs de coupes nationales, non suivis ici — approximation
+# raisonnable mais pas garantie à la place près dans ces cas de figure.
 LEAGUE_ZONE_RULES = {
     "PL":  {"total": 20, "cl": 4, "europa": 2, "conference": 1, "relegation": 3},
     "PD":  {"total": 20, "cl": 4, "europa": 1, "conference": 1, "relegation": 3},
@@ -228,18 +250,20 @@ LEAGUE_ZONE_RULES = {
 }
 
 
-def classify_zone(rank, total_teams, competition_code):
+def classify_zone(rank: int, total_teams: int, competition_code: str) -> str:
     if competition_code == "CL":
+        # Phase de ligue UEFA : la notion de zone de classement classique ne s'applique
+        # pas — l'enjeu vient surtout du stade de la compétition (finale, demi, etc.).
         return "mid_table"
 
     if competition_code == "BSA":
         if not total_teams or rank is None:
             return "mid_table"
         if rank <= 6:
-            return "continental_zone"
+            return "continental_zone"  # Copa Libertadores
         if rank <= 12:
             return "sudamericana_zone"
-        if rank > total_teams - 4:
+        if rank > total_teams - 4:  # 4 relégués au Brésil
             return "relegation_zone"
         return "mid_table"
 
@@ -294,6 +318,11 @@ STAGE_LABELS = {
 
 
 def analyze_match_context(standing1, standing2, competition_code, team1_name, team2_name, scheduled_match):
+    """
+    Analyse le contexte réel du match : derby, phase de compétition (finale, demi...),
+    et lutte de classement (titre, Europe, maintien, barrage). Renvoie un facteur
+    d'ajustement des buts attendus et un libellé explicatif.
+    """
     labels = []
     stakes_factor = 1.0
 
@@ -354,11 +383,11 @@ def analyze_match_context(standing1, standing2, competition_code, team1_name, te
     return stakes_factor, label_text[0].upper() + label_text[1:]
 
 
-def poisson_pmf(k, lam):
+def poisson_pmf(k: int, lam: float) -> float:
     return (lam ** k) * math.exp(-lam) / math.factorial(k)
 
 
-def dixon_coles_tau(h, a, lh, la, rho):
+def dixon_coles_tau(h: int, a: int, lh: float, la: float, rho: float) -> float:
     if h == 0 and a == 0:
         return 1 - (lh * la * rho)
     elif h == 0 and a == 1:
@@ -370,7 +399,7 @@ def dixon_coles_tau(h, a, lh, la, rho):
     return 1.0
 
 
-def build_score_matrix(lambda_home, lambda_away, rho):
+def build_score_matrix(lambda_home: float, lambda_away: float, rho: float) -> dict:
     matrix = {}
     total = 0.0
     for h in range(MAX_GOALS + 1):
@@ -384,7 +413,7 @@ def build_score_matrix(lambda_home, lambda_away, rho):
     return matrix
 
 
-def run_prediction(team1_name, team2_name):
+def run_prediction(team1_name: str, team2_name: str) -> dict:
     directory = build_team_directory()
     team1 = find_team(team1_name, directory)
     team2 = find_team(team2_name, directory)
@@ -438,6 +467,9 @@ def run_prediction(team1_name, team2_name):
     top_scores = sorted(matrix.items(), key=lambda x: x[1], reverse=True)[:3]
     over_2_5 = sum(p for (h, a), p in matrix.items() if h + a > 2)
     btts_yes = sum(p for (h, a), p in matrix.items() if h > 0 and a > 0)
+    home_win = sum(p for (h, a), p in matrix.items() if h > a)
+    draw = sum(p for (h, a), p in matrix.items() if h == a)
+    away_win = sum(p for (h, a), p in matrix.items() if h < a)
 
     return {
         "team1": team1, "team2": team2,
@@ -446,15 +478,18 @@ def run_prediction(team1_name, team2_name):
         "h2h": h2h, "standing1": standing1, "standing2": standing2, "stakes_label": stakes_label,
         "top_scores": top_scores, "over_2_5": over_2_5, "under_2_5": 1 - over_2_5,
         "btts_yes": btts_yes, "btts_no": 1 - btts_yes,
+        "home_win": home_win, "draw": draw, "away_win": away_win,
         "low_data_warning": low_data_warning,
     }
 
+
+# ---------- Interface ----------
 
 st.set_page_config(page_title="Robot de pronostic foot", page_icon="⚽", layout="centered")
 
 st.title("⚽ Robot de pronostic foot")
 st.caption("Premier League, Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Liga Portugal, "
-           "Championship, Brasileirão, Ligue des Champions")
+           "Championship,Championship, Brasileirão, Ligue des Champions")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -480,7 +515,8 @@ if st.button("Prédire", type="primary", use_container_width=True):
             t1, t2 = result["team1"], result["team2"]
 
             if result["low_data_warning"]:
-                st.warning("Peu de matchs disponibles cette saison pour ces équipes — la prédiction sera peu précise.")
+                st.warning("Peu de matchs disponibles cette saison pour ces équipes — la prédiction sera peu précise "
+                           "(probablement début de saison).")
 
             st.subheader(f"{t1['name']} vs {t2['name']}")
 
@@ -501,6 +537,16 @@ if st.button("Prédire", type="primary", use_container_width=True):
                            f"{t2['name']} : {result['standing2']['rank']}e place ({result['standing2']['points']} pts)")
             st.caption(f"⚖️ Enjeu du match : {result['stakes_label']}")
 
+            outcomes = [("home", result["home_win"], f"Victoire {t1['name']}"),
+                        ("draw", result["draw"], "Match nul"),
+                        ("away", result["away_win"], f"Victoire {t2['name']}")]
+            best_outcome = max(outcomes, key=lambda x: x[1])
+            st.markdown(f"### 🎯 Résultat le plus probable : {best_outcome[2]} ({best_outcome[1] * 100:.1f}%)")
+            c1, c2, c3 = st.columns(3)
+            c1.metric(f"{t1['name']}", f"{result['home_win'] * 100:.1f}%")
+            c2.metric("Nul", f"{result['draw'] * 100:.1f}%")
+            c3.metric(f"{t2['name']}", f"{result['away_win'] * 100:.1f}%")
+
             st.markdown("### Top 3 des scores exacts")
             for (h, a), p in result["top_scores"]:
                 st.write(f"**{t1['name']} {h} - {a} {t2['name']}** : {p * 100:.1f}%")
@@ -518,4 +564,3 @@ if st.button("Prédire", type="primary", use_container_width=True):
 st.divider()
 st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
            "naïve sur tous les championnats — voir le détail du backtesting du projet.")
- 
