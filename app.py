@@ -148,19 +148,18 @@ def blended_value(mixed_value, venue_value, venue_played, alpha):
     return alpha * venue_value + (1 - alpha) * mixed_value
 
 
-def find_h2h_match_id(team1_id, team2_id):
+def get_scheduled_match(team1_id, team2_id):
     data = api_get(f"teams/{team1_id}/matches", {"status": "SCHEDULED"})
     for m in data.get("matches", []):
         if m["homeTeam"]["id"] == team2_id or m["awayTeam"]["id"] == team2_id:
-            return m["id"]
+            return m
     return None
 
 
-def get_h2h(team1_id, team2_id, n=5):
-    match_id = find_h2h_match_id(team1_id, team2_id)
-    if not match_id:
+def get_h2h(scheduled_match, n=5):
+    if not scheduled_match:
         return {"played": 0, "avg_total_goals": None}
-    data = api_get(f"matches/{match_id}/head2head", {"limit": n})
+    data = api_get(f"matches/{scheduled_match['id']}/head2head", {"limit": n})
     matches = data.get("matches", [])
     total_goals, played = 0, 0
     for m in matches:
@@ -185,21 +184,174 @@ def get_standings_table(competition_code):
 
 def get_standing(team_id, competition_code):
     table = get_standings_table(competition_code)
+    total_teams = len(table)
     for row in table:
         if row["team"]["id"] == team_id:
-            return {"rank": row["position"], "points": row["points"]}
+            return {"rank": row["position"], "points": row["points"], "total_teams": total_teams}
     return None
 
 
-def estimate_stakes_factor(standing1, standing2):
-    if not standing1 or not standing2:
-        return 1.0, "enjeu inconnu (classement indisponible)"
-    rank_gap = abs(standing1["rank"] - standing2["rank"])
-    if rank_gap <= 3:
-        return 0.92, f"enjeu élevé (écart de {rank_gap} places au classement)"
-    elif rank_gap <= 8:
-        return 0.97, f"enjeu modéré (écart de {rank_gap} places au classement)"
-    return 1.0, f"enjeu faible (écart de {rank_gap} places au classement)"
+DERBIES = [
+    ("real madrid", "barcelona"), ("real madrid", "atletico"), ("atletico", "barcelona"),
+    ("sevilla", "real betis"),
+    ("manchester united", "manchester city"), ("liverpool", "everton"),
+    ("arsenal", "tottenham"), ("arsenal", "chelsea"), ("chelsea", "tottenham"),
+    ("ac milan", "internazionale"), ("ac milan", "inter"), ("roma", "lazio"),
+    ("juventus", "torino"), ("napoli", "roma"),
+    ("borussia dortmund", "schalke"), ("bayern", "1860 munich"), ("borussia dortmund", "bayern"),
+    ("hamburg", "st. pauli"),
+    ("paris saint-germain", "marseille"), ("lyon", "saint-etienne"), ("lyon", "saint-étienne"),
+    ("psg", "marseille"),
+    ("ajax", "feyenoord"), ("ajax", "psv"), ("feyenoord", "psv"),
+    ("porto", "benfica"), ("porto", "sporting"), ("benfica", "sporting"),
+    ("flamengo", "fluminense"), ("flamengo", "vasco"), ("flamengo", "botafogo"),
+    ("corinthians", "palmeiras"), ("sao paulo", "corinthians"), ("gremio", "internacional"),
+]
+
+
+def is_derby(name1, name2):
+    n1, n2 = strip_accents(name1).lower(), strip_accents(name2).lower()
+    for frag1, frag2 in DERBIES:
+        if (frag1 in n1 and frag2 in n2) or (frag2 in n1 and frag1 in n2):
+            return True
+    return False
+
+
+LEAGUE_ZONE_RULES = {
+    "PL":  {"total": 20, "cl": 4, "europa": 2, "conference": 1, "relegation": 3},
+    "PD":  {"total": 20, "cl": 4, "europa": 1, "conference": 1, "relegation": 3},
+    "BL1": {"total": 18, "cl": 4, "europa": 1, "conference": 1, "relegation": 2, "relegation_playoff": 1},
+    "SA":  {"total": 20, "cl": 4, "europa": 1, "conference": 1, "relegation": 3},
+    "FL1": {"total": 18, "cl": 4, "europa": 2, "conference": 1, "relegation": 2},
+    "DED": {"total": 18, "cl": 3, "europa": 1, "conference": 5, "relegation": 2, "relegation_playoff": 1},
+    "PPL": {"total": 18, "cl": 2, "europa": 1, "conference": 1, "relegation": 2, "relegation_playoff": 1},
+}
+
+
+def classify_zone(rank, total_teams, competition_code):
+    if competition_code == "CL":
+        return "mid_table"
+
+    if competition_code == "BSA":
+        if not total_teams or rank is None:
+            return "mid_table"
+        if rank <= 6:
+            return "continental_zone"
+        if rank <= 12:
+            return "sudamericana_zone"
+        if rank > total_teams - 4:
+            return "relegation_zone"
+        return "mid_table"
+
+    if competition_code == "ELC":
+        if not total_teams or rank is None:
+            return "mid_table"
+        if rank <= 2:
+            return "automatic_promotion"
+        if rank <= 6:
+            return "playoff_zone"
+        if rank > total_teams - 3:
+            return "relegation_zone"
+        return "mid_table"
+
+    rules = LEAGUE_ZONE_RULES.get(competition_code)
+    if not rules or rank is None or not total_teams:
+        if rank is None or not total_teams:
+            return "mid_table"
+        if rank <= 4:
+            return "ucl_zone"
+        if rank <= 6:
+            return "european_zone"
+        if rank > total_teams - 3:
+            return "relegation_zone"
+        return "mid_table"
+
+    cl_cutoff = rules["cl"]
+    european_cutoff = cl_cutoff + rules.get("europa", 0) + rules.get("conference", 0)
+    relegation_size = rules.get("relegation", 3)
+    playoff_rank = (total_teams - relegation_size) if rules.get("relegation_playoff") else None
+
+    if rank <= 1:
+        return "leader"
+    if rank <= cl_cutoff:
+        return "ucl_zone"
+    if rank <= european_cutoff:
+        return "european_zone"
+    if rank > total_teams - relegation_size:
+        return "relegation_zone"
+    if playoff_rank and rank == playoff_rank:
+        return "relegation_playoff_zone"
+    return "mid_table"
+
+
+STAGE_LABELS = {
+    "FINAL": ("finale", 0.85),
+    "SEMI_FINALS": ("demi-finale", 0.90),
+    "QUARTER_FINALS": ("quart de finale", 0.93),
+    "LAST_16": ("8e de finale", 0.95),
+    "PLAYOFFS": ("barrage / match de qualification", 0.93),
+}
+
+
+def analyze_match_context(standing1, standing2, competition_code, team1_name, team2_name, scheduled_match):
+    labels = []
+    stakes_factor = 1.0
+
+    if is_derby(team1_name, team2_name):
+        labels.append("derby")
+        stakes_factor *= 0.92
+
+    stage = scheduled_match.get("stage") if scheduled_match else None
+    if stage in STAGE_LABELS:
+        label, factor = STAGE_LABELS[stage]
+        labels.append(label)
+        stakes_factor *= factor
+
+    if standing1 and standing2:
+        total_teams = standing1.get("total_teams") or standing2.get("total_teams")
+        zone1 = classify_zone(standing1["rank"], total_teams, competition_code)
+        zone2 = classify_zone(standing2["rank"], total_teams, competition_code)
+        point_gap = abs(standing1["points"] - standing2["points"])
+        close = point_gap <= 6
+
+        if (zone1 in ("leader", "ucl_zone") and zone2 in ("leader", "ucl_zone")
+                and standing1["rank"] <= 3 and standing2["rank"] <= 3 and close):
+            labels.append("lutte pour le titre")
+            stakes_factor *= 0.90
+        elif zone1 == "automatic_promotion" and zone2 == "automatic_promotion" and close:
+            labels.append("lutte pour la montée directe")
+            stakes_factor *= 0.90
+        elif zone1 == "relegation_zone" and zone2 == "relegation_zone":
+            labels.append("lutte pour le maintien")
+            stakes_factor *= 0.93
+        elif zone1 == "relegation_playoff_zone" and zone2 == "relegation_playoff_zone" and close:
+            labels.append("lutte pour éviter le barrage de relégation")
+            stakes_factor *= 0.94
+        elif (zone1 in ("relegation_zone", "relegation_playoff_zone")
+              or zone2 in ("relegation_zone", "relegation_playoff_zone")) and close:
+            labels.append("enjeu de maintien")
+            stakes_factor *= 0.95
+        elif zone1 == "playoff_zone" and zone2 == "playoff_zone":
+            labels.append("lutte pour le barrage de promotion")
+            stakes_factor *= 0.93
+        elif zone1 == "continental_zone" and zone2 == "continental_zone" and close:
+            labels.append("lutte pour une place en Copa Libertadores")
+            stakes_factor *= 0.94
+        elif zone1 == "sudamericana_zone" and zone2 == "sudamericana_zone" and close:
+            labels.append("lutte pour une place en Copa Sudamericana")
+            stakes_factor *= 0.96
+        elif (zone1 in ("ucl_zone", "european_zone") and zone2 in ("ucl_zone", "european_zone") and close):
+            labels.append("lutte pour une place européenne")
+            stakes_factor *= 0.95
+        elif zone1 == "mid_table" and zone2 == "mid_table":
+            labels.append("match sans grand enjeu de classement")
+            stakes_factor *= 1.05
+
+    if not labels:
+        labels.append("enjeu standard")
+
+    label_text = ", ".join(labels)
+    return stakes_factor, label_text[0].upper() + label_text[1:]
 
 
 def poisson_pmf(k, lam):
@@ -259,11 +411,14 @@ def run_prediction(team1_name, team2_name):
     away_scored = blended_value(mixed2["avg_scored"], away_form["avg_scored"], away_form["played"], alpha)
     away_conceded = blended_value(mixed2["avg_conceded"], away_form["avg_conceded"], away_form["played"], alpha)
 
-    h2h = get_h2h(team1["id"], team2["id"])
+    scheduled_match = get_scheduled_match(team1["id"], team2["id"])
+    h2h = get_h2h(scheduled_match)
 
     standing1 = get_standing(team1["id"], team1["competition_code"])
     standing2 = get_standing(team2["id"], team2["competition_code"])
-    stakes_factor, stakes_label = estimate_stakes_factor(standing1, standing2)
+    stakes_factor, stakes_label = analyze_match_context(
+        standing1, standing2, team1["competition_code"], team1["name"], team2["name"], scheduled_match
+    )
 
     home_bonus = 1 + 0.08 * (1 - alpha)
     away_malus = 1 - 0.05 * (1 - alpha)
@@ -311,7 +466,7 @@ if st.button("Prédire", type="primary", use_container_width=True):
     if not team1_input.strip() or not team2_input.strip():
         st.warning("Renseigne les deux équipes.")
     else:
-        with st.spinner("Analyse en cours... (peut prendre 30-60s la première fois)"):
+        with st.spinner("Analyse en cours..."):
             try:
                 result = run_prediction(team1_input.strip(), team2_input.strip())
             except ValueError as e:
@@ -344,7 +499,7 @@ if st.button("Prédire", type="primary", use_container_width=True):
             if result["standing1"] and result["standing2"]:
                 st.caption(f"🏆 {t1['name']} : {result['standing1']['rank']}e place ({result['standing1']['points']} pts) — "
                            f"{t2['name']} : {result['standing2']['rank']}e place ({result['standing2']['points']} pts)")
-            st.caption(f"⚖️ {result['stakes_label']}")
+            st.caption(f"⚖️ Enjeu du match : {result['stakes_label']}")
 
             st.markdown("### Top 3 des scores exacts")
             for (h, a), p in result["top_scores"]:
@@ -356,10 +511,4 @@ if st.button("Prédire", type="primary", use_container_width=True):
             c2.metric("Moins de 2.5", f"{result['under_2_5'] * 100:.1f}%")
 
             st.markdown("### BTTS (les deux équipes marquent)")
-            c1, c2 = st.columns(2)
-            c1.metric("Oui", f"{result['btts_yes'] * 100:.1f}%")
-            c2.metric("Non", f"{result['btts_no'] * 100:.1f}%")
-
-st.divider()
-st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
-           "naïve sur tous les championnats.")
+ 
