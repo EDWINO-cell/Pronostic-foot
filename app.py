@@ -12,6 +12,7 @@ dans les "Secrets" de l'application sur Streamlit Cloud, sous la forme :
     FOOTBALL_DATA_KEY = "ton_token_ici"
 """
 
+import difflib
 import json
 import math
 import os
@@ -87,14 +88,60 @@ def build_team_directory() -> list:
     return directory
 
 
+# Surnoms très courants qui ne correspondent à aucun mot du nom officiel
+# (donc que la recherche par mots ne peut pas trouver toute seule).
+TEAM_ALIASES = {
+    "barca": "barcelona", "man utd": "manchester united", "man u": "manchester united",
+    "man united": "manchester united", "man city": "manchester city", "inter": "internazionale",
+    "juve": "juventus", "atleti": "atletico madrid", "psg": "paris saint-germain",
+    "gunners": "arsenal", "spurs": "tottenham", "wolves": "wolverhampton",
+    "atletico mg": "atletico mineiro", "atletico-mg": "atletico mineiro",
+}
+
+
 def find_team(name: str, directory: list) -> dict | None:
-    query = strip_accents(name).lower()
-    candidates = []
-    for team in directory:
-        haystack = strip_accents(f"{team['name']} {team['short_name']} {team['tla']}").lower()
-        if query in haystack:
-            candidates.append(team)
-    return candidates[0] if candidates else None
+    """
+    Cherche une équipe par nom, en plusieurs passes de plus en plus tolérantes :
+    1) phrase exacte, 2) surnom connu (Barça, Man Utd...), 3) tous les mots tapés
+    présents (dans n'importe quel ordre), 4) recherche floue (tolère fautes de
+    frappe et variantes d'orthographe) — pour couvrir n'importe quel club, pas
+    seulement les plus connus.
+    """
+    query = strip_accents(name).lower().strip()
+    if not query:
+        return None
+
+    query = TEAM_ALIASES.get(query, query)
+
+    # 1) phrase exacte
+    exact = [t for t in directory
+             if query in strip_accents(f"{t['name']} {t['short_name']} {t['tla']}").lower()]
+    if exact:
+        return min(exact, key=lambda t: len(t["name"]))
+
+    # 2) repli : tous les mots tapés doivent apparaître (dans n'importe quel ordre)
+    words = [w for w in query.replace("-", " ").split() if w]
+    if words:
+        partial = []
+        for t in directory:
+            haystack = strip_accents(f"{t['name']} {t['short_name']} {t['tla']}").lower()
+            if all(w in haystack for w in words):
+                partial.append(t)
+        if partial:
+            return min(partial, key=lambda t: len(t["name"]))
+
+    # 3) recherche floue (typos, orthographe légèrement différente) — générique,
+    # fonctionne pour n'importe quel club sans avoir à le lister à la main.
+    name_index = {}
+    for t in directory:
+        for candidate in (t["name"], t["short_name"], t["tla"]):
+            if candidate:
+                name_index[strip_accents(candidate).lower()] = t
+    close = difflib.get_close_matches(query, name_index.keys(), n=1, cutoff=0.72)
+    if close:
+        return name_index[close[0]]
+
+    return None
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -419,9 +466,11 @@ def run_prediction(team1_name: str, team2_name: str) -> dict:
     team2 = find_team(team2_name, directory)
 
     if team1 is None:
-        raise ValueError(f"Aucune équipe trouvée pour « {team1_name} ».")
+        raise ValueError(f"Aucune équipe trouvée pour « {team1_name} ». Essaie un nom plus simple "
+                          f"(ex: juste le nom de la ville ou l'abréviation officielle du club).")
     if team2 is None:
-        raise ValueError(f"Aucune équipe trouvée pour « {team2_name} ».")
+        raise ValueError(f"Aucune équipe trouvée pour « {team2_name} ». Essaie un nom plus simple "
+                          f"(ex: juste le nom de la ville ou l'abréviation officielle du club).")
 
     rho, alpha = LEAGUE_SETTINGS.get(team1["competition_code"], DEFAULT_SETTINGS)
 
@@ -489,7 +538,7 @@ st.set_page_config(page_title="Robot de pronostic foot", page_icon="⚽", layout
 
 st.title("⚽ Robot de pronostic foot")
 st.caption("Premier League, Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Liga Portugal, "
-           "Championship,Championship, Brasileirão, Ligue des Champions")
+           "Championship, Brasileirão, Ligue des Champions")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -519,6 +568,8 @@ if st.button("Prédire", type="primary", use_container_width=True):
                            "(probablement début de saison).")
 
             st.subheader(f"{t1['name']} vs {t2['name']}")
+            st.caption(f"Trouvé pour « {team1_input.strip()} » → {t1['name']} ({t1['competition_code']})  |  "
+                       f"« {team2_input.strip()} » → {t2['name']} ({t2['competition_code']})")
 
             c1, c2 = st.columns(2)
             with c1:
