@@ -29,19 +29,33 @@ MAX_GOALS = 6
 
 COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "DED", "PPL", "ELC", "BSA", "CL"]
 
-LEAGUE_SETTINGS = {
-    "PL": (-0.13, 0.6),
-    "PD": (-0.18, 0.6),
-    "BL1": (0.00, 0.8),
-    "SA": (-0.18, 0.4),
-    "FL1": (-0.13, 0.6),
-    "DED": (-0.13, 0.8),
-    "PPL": (-0.18, 0.4),
-    "ELC": (-0.18, 0.4),
-    "BSA": (-0.18, 0.4),
-    "CL": (-0.13, 0.6),
-}
+import json
+
 DEFAULT_SETTINGS = (-0.13, 0.6)
+
+def load_league_settings() -> dict:
+    """
+    Charge les réglages rho/alpha depuis league_settings.json (mis à jour
+    automatiquement par recalibrate.py). Si le fichier n'existe pas encore
+    (première mise en place, avant le premier run de l'Action), on retombe
+    sur les valeurs calibrées manuellement en dur, en secours.
+    """
+    fallback = {
+        "PL": (-0.13, 0.6), "PD": (-0.18, 0.6), "BL1": (0.00, 0.8),
+        "SA": (-0.18, 0.4), "FL1": (-0.13, 0.6), "DED": (-0.13, 0.8),
+        "PPL": (-0.18, 0.4), "ELC": (-0.18, 0.4), "BSA": (-0.18, 0.4),
+        "CL": (-0.13, 0.6),
+    }
+    try:
+        with open("league_settings.json") as f:
+            raw = json.load(f)
+        # recalibrate.py écrit {"PL": {"rho": ..., "alpha": ..., "brier": ...}, ...}
+        # on convertit vers le format (rho, alpha) attendu par le reste du code
+        return {code: (v["rho"], v["alpha"]) for code, v in raw.items()}
+    except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        return fallback
+
+LEAGUE_SETTINGS = load_league_settings()
 MIN_MATCHES_MIXED = 6
 MIN_MATCHES_VENUE = 4
 
