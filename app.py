@@ -531,6 +531,7 @@ def run_prediction_for_teams(team1: dict, team2: dict) -> dict:
         "away_scored": away_scored, "away_conceded": away_conceded,
         "h2h": h2h, "standing1": standing1, "standing2": standing2, "stakes_label": stakes_label,
         "scheduled_match": scheduled_match,
+        "scheduled_match": scheduled_match,
         "top_scores": top_scores, "over_2_5": over_2_5, "under_2_5": 1 - over_2_5,
         "btts_yes": btts_yes, "btts_no": 1 - btts_yes,
         "home_win": home_win, "draw": draw, "away_win": away_win,
