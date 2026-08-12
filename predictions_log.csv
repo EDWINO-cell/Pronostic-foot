@@ -1,0 +1,5 @@
+log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_name,market,predicted_value,predicted_probability,actual_checked,actual_result,was_correct,brier_error
+524-516-1N2-2026-08-12T11:35:47.062041,2026-08-12T11:35:47.062041,2026-09-20T18:45:00Z,FL1,524,Paris Saint-Germain FC,516,Olympique de Marseille,1N2,1,0.34311442862201424,false,,,
+524-516-over_under_2.5-2026-08-12T11:35:47.062041,2026-08-12T11:35:47.062041,2026-09-20T18:45:00Z,FL1,524,Paris Saint-Germain FC,516,Olympique de Marseille,over_under_2.5,under,0.6508301287043095,false,,,
+524-516-btts-2026-08-12T11:35:47.062041,2026-08-12T11:35:47.062041,2026-09-20T18:45:00Z,FL1,524,Paris Saint-Germain FC,516,Olympique de Marseille,btts,non,0.5609560146423251,false,,,
+524-516-score_exact_top1-2026-08-12T11:35:47.062041,2026-08-12T11:35:47.062041,2026-09-20T18:45:00Z,FL1,524,Paris Saint-Germain FC,516,Olympique de Marseille,score_exact_top1,1-1,0.15256180675356995,false,,,
