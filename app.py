@@ -23,6 +23,8 @@ import unicodedata
 import requests
 import streamlit as st
 
+from logging_predictions import log_prediction
+
 API_BASE_URL = "https://api.football-data.org/v4"
 REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
 MAX_GOALS = 6
@@ -654,6 +656,7 @@ with tab_manual:
                     result = None
 
             if result:
+                log_prediction(result)
                 t1, t2 = result["team1"], result["team2"]
                 subtitle = (f"Trouvé pour « {team1_input.strip()} » → {t1['name']} ({t1['competition_code']})  |  "
                             f"« {team2_input.strip()} » → {t2['name']} ({t2['competition_code']})")
@@ -693,6 +696,7 @@ with tab_upcoming:
         with st.spinner("Analyse en cours..."):
             try:
                 result = run_prediction_for_teams(teams["home"], teams["away"])
+                log_prediction(result)
                 render_prediction(result)
             except RuntimeError as e:
                 st.error(f"Erreur de connexion à l'API : {e}")
