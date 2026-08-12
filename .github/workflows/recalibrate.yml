@@ -27,10 +27,15 @@ jobs:
           FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
         run: python3 recalibrate.py
 
-      - name: Commit updated settings
+      - name: Check prediction results
+        env:
+          FOOTBALL_DATA_KEY: ${{ secrets.FOOTBALL_DATA_KEY }}
+        run: python3 check_results.py
+
+      - name: Commit updated settings and results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add league_settings.json
-          git diff --staged --quiet || git commit -m "Recalibration automatique mensuelle"
+          git add league_settings.json predictions_log.csv
+          git diff --staged --quiet || git commit -m "Recalibration + vérification des résultats mensuelle"
           git push
