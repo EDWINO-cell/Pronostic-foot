@@ -19,3 +19,7 @@ log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_
 5613-1782-over_under_2.5-2026-08-14T19:25:16.642650,2026-08-14T19:25:16.642650,,PPL,5613,Sporting Clube de Braga,1782,EC Vitória,over_under_2.5,over,0.6445907133971341,false,,,
 5613-1782-btts-2026-08-14T19:25:16.642650,2026-08-14T19:25:16.642650,,PPL,5613,Sporting Clube de Braga,1782,EC Vitória,btts,oui,0.635920204640298,false,,,
 5613-1782-score_exact_top1-2026-08-14T19:25:16.642650,2026-08-14T19:25:16.642650,,PPL,5613,Sporting Clube de Braga,1782,EC Vitória,score_exact_top1,1-1,0.10941825276330325,false,,,
+498-5543-1N2-2026-08-14T19:25:32.286213,2026-08-14T19:25:32.286213,2027-01-24T00:00:00Z,PPL,498,Sporting Clube de Portugal,5543,Vitória SC,1N2,1,0.47349797687927675,false,,,
+498-5543-over_under_2.5-2026-08-14T19:25:32.286213,2026-08-14T19:25:32.286213,2027-01-24T00:00:00Z,PPL,498,Sporting Clube de Portugal,5543,Vitória SC,over_under_2.5,over,0.6068735453010566,false,,,
+498-5543-btts-2026-08-14T19:25:32.286213,2026-08-14T19:25:32.286213,2027-01-24T00:00:00Z,PPL,498,Sporting Clube de Portugal,5543,Vitória SC,btts,oui,0.6327018169520249,false,,,
+498-5543-score_exact_top1-2026-08-14T19:25:32.286213,2026-08-14T19:25:32.286213,2027-01-24T00:00:00Z,PPL,498,Sporting Clube de Portugal,5543,Vitória SC,score_exact_top1,1-1,0.1228809670501717,false,,,
