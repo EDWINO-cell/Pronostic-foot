@@ -704,3 +704,5 @@ with tab_upcoming:
 st.divider()
 st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
            "naïve sur tous les championnats — voir le détail du backtesting du projet.")
+with tab_dashboard:
+    render_dashboard()
