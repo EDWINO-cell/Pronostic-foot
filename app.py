@@ -24,7 +24,7 @@ import requests
 import streamlit as st
 
 from logging_predictions import log_prediction
-
+from dashboard import render_dashboard
 API_BASE_URL = "https://api.football-data.org/v4"
 REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
 MAX_GOALS = 6
@@ -632,7 +632,7 @@ st.title("⚽ Robot de pronostic foot")
 st.caption("Premier League, Liga, Bundesliga, Serie A, Ligue 1, Eredivisie, Liga Portugal, "
            "Championship, Brasileirão, Ligue des Champions")
 
-tab_manual, tab_upcoming = st.tabs(["🔎 Prédiction manuelle", "📅 Matchs à venir"])
+tab_manual, tab_upcoming, tab_dashboard = st.tabs(["🔎 Prédiction manuelle", "📅 Matchs à venir", "📊 Performance"])
 
 with tab_manual:
     col1, col2 = st.columns(2)
