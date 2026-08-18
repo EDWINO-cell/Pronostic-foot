@@ -690,8 +690,6 @@ with tab_upcoming:
                 "home": {"id": m["homeTeam"]["id"], "name": home, "competition_code": comp},
                 "away": {"id": m["awayTeam"]["id"], "name": away, "competition_code": comp},
             }
-with tab_dashboard:
-    render_dashboard()
 
     if st.session_state.get("selected_fixture_data"):
         st.divider()
