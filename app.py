@@ -17,7 +17,7 @@ import difflib
 import json
 import math
 importer os
-temps d'importation
+#temps d'importation
 import unicodedata
 
 #demandes d'importation
