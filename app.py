@@ -20,7 +20,7 @@ importer os
 temps d'importation
 import unicodedata
 
-demandes d'importation
+#demandes d'importation
 importer streamlit comme st
 
 from logging_predictions import log_prediction
