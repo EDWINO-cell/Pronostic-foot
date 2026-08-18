@@ -46,7 +46,6 @@ def _headers() -> dict:
 
 
 def _fetch_current_file():
-    """Retourne (contenu_texte, sha) du fichier existant, ou (None, None) s'il n'existe pas encore."""
     response = requests.get(GITHUB_API_BASE, headers=_headers(), timeout=15)
     if response.status_code == 404:
         return None, None
@@ -57,12 +56,6 @@ def _fetch_current_file():
 
 
 def append_rows(rows: list[dict]) -> None:
-    """
-    Ajoute une ou plusieurs lignes à predictions_log.csv dans le repo GitHub.
-    Lit le fichier existant, y ajoute les lignes, recommite. Si deux clics
-    surviennent au même instant, un conflit de sha peut faire échouer un des
-    deux appels : on retente une fois avec le sha à jour avant d'abandonner.
-    """
     for attempt in range(2):
         current_content, sha = _fetch_current_file()
 
@@ -81,7 +74,7 @@ def append_rows(rows: list[dict]) -> None:
 
         new_content = buffer.getvalue()
         payload = {
-            "message": f"Log {len(rows)} prédiction(s) via l'app",
+            "message": f"Log {len(rows)} prediction(s) via l'app",
             "content": base64.b64encode(new_content.encode("utf-8")).decode("utf-8"),
         }
         if sha:
@@ -91,19 +84,12 @@ def append_rows(rows: list[dict]) -> None:
         if response.status_code in (200, 201):
             return
         if response.status_code == 409 and attempt == 0:
-            continue  # conflit de sha (écriture concurrente) : on retente avec le sha à jour
-        # Ne bloque jamais l'affichage du pronostic à cause d'un souci de log.
-        st.warning("Le log de cette prédiction n'a pas pu être enregistré (non bloquant).")
+            continue
+        st.warning("Le log de cette prediction n'a pas pu etre enregistre (non bloquant).")
         return
-        
-        
-  def fetch_predictions_log_as_rows() -> list:
-    """
-    Lit predictions_log.csv directement depuis GitHub (toujours à jour, ne
-    dépend pas du disque local de l'app) et le retourne comme liste de dicts.
-    Renvoie une liste vide si le fichier n'existe pas encore ou en cas
-    d'erreur — le tableau de bord doit pouvoir s'afficher même sans données.
-    """
+
+
+def fetch_predictions_log_as_rows() -> list:
     try:
         content, _sha = _fetch_current_file()
         if not content:
