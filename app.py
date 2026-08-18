@@ -25,6 +25,7 @@ import streamlit as st
 
 from logging_predictions import log_prediction
 from dashboard import render_dashboard
+
 API_BASE_URL = "https://api.football-data.org/v4"
 REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
 MAX_GOALS = 6
