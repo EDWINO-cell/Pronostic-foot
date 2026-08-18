@@ -95,4 +95,20 @@ def append_rows(rows: list[dict]) -> None:
         # Ne bloque jamais l'affichage du pronostic à cause d'un souci de log.
         st.warning("Le log de cette prédiction n'a pas pu être enregistré (non bloquant).")
         return
-  
+        
+        
+  def fetch_predictions_log_as_rows() -> list:
+    """
+    Lit predictions_log.csv directement depuis GitHub (toujours à jour, ne
+    dépend pas du disque local de l'app) et le retourne comme liste de dicts.
+    Renvoie une liste vide si le fichier n'existe pas encore ou en cas
+    d'erreur — le tableau de bord doit pouvoir s'afficher même sans données.
+    """
+    try:
+        content, _sha = _fetch_current_file()
+        if not content:
+            return []
+        reader = csv.DictReader(io.StringIO(content))
+        return list(reader)
+    except Exception:
+        return []
