@@ -16,24 +16,24 @@ import datetime
 import difflib
 import json
 import math
-import os
-import time
+importer os
+temps d'importation
 import unicodedata
 
-import requests
-import streamlit as st
+demandes d'importation
+importer streamlit comme st
 
 from logging_predictions import log_prediction
 from dashboard import render_dashboard
 API_BASE_URL = "https://api.football-data.org/v4"
-REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
+REQUEST_DELAY_SECONDS = 6.5   # le plan gratuit limité à 10 requêtes/minute
 MAX_GOALS = 6
 
-COMPETITIONS = ["PL", "PD", "BL1", "SA", "FL1", "DED", "PPL", "ELC", "BSA", "CL"]
+COMPÉTITIONS = [ "PL" , "PD" , "BL1" , "SA" , "FL1" , "DED" , "PPL" , "ELC" , "BSA" , "CL" ]
 
-import json
+importer du JSON
 
-DEFAULT_SETTINGS = (-0.13, 0.6)
+PARAMÈTRES_DÉFAUT = ( - 0,13 , 0,6 )
 
 def load_league_settings() -> dict:
     """
@@ -676,9 +676,6 @@ with tab_upcoming:
 
     selected_key = st.session_state.get("selected_fixture")
     
-with tab_dashboard:
-    render_dashboard()
-    
     for m in fixtures:
         home, away = m["homeTeam"]["name"], m["awayTeam"]["name"]
         comp = m["competition"]["code"]
@@ -692,7 +689,10 @@ with tab_dashboard:
                 "home": {"id": m["homeTeam"]["id"], "name": home, "competition_code": comp},
                 "away": {"id": m["awayTeam"]["id"], "name": away, "competition_code": comp},
             }
-
+            
+with tab_dashboard:
+    render_dashboard()
+    
     if st.session_state.get("selected_fixture_data"):
         st.divider()
         teams = st.session_state["selected_fixture_data"]
