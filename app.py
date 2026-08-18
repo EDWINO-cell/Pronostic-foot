@@ -690,6 +690,9 @@ with tab_upcoming:
                 "away": {"id": m["awayTeam"]["id"], "name": away, "competition_code": comp},
             }
 
+    with tab_dashboard:
+    render_dashboard()
+
     if st.session_state.get("selected_fixture_data"):
         st.divider()
         teams = st.session_state["selected_fixture_data"]
