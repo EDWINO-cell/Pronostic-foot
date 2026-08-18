@@ -25,7 +25,6 @@ import streamlit as st
 
 from logging_predictions import log_prediction
 from dashboard import render_dashboard
-
 API_BASE_URL = "https://api.football-data.org/v4"
 REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
 MAX_GOALS = 6
@@ -676,7 +675,10 @@ with tab_upcoming:
         st.info("Aucun match programmé trouvé dans les 7 prochains jours pour ces championnats.")
 
     selected_key = st.session_state.get("selected_fixture")
-
+    
+with tab_dashboard:
+    render_dashboard()
+    
     for m in fixtures:
         home, away = m["homeTeam"]["name"], m["awayTeam"]["name"]
         comp = m["competition"]["code"]
