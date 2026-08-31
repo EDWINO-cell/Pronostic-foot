@@ -225,6 +225,36 @@ def blended_value(mixed_value: float, venue_value, venue_played: int, alpha: flo
     return alpha * venue_value + (1 - alpha) * mixed_value
 
 
+def compute_rest_days(matches: list, reference_date: str):
+    """Jours de repos depuis le dernier match joué avant reference_date (ISO 8601)."""
+    if not matches:
+        return None
+    ref = datetime.datetime.fromisoformat(reference_date.replace("Z", "+00:00"))
+    last_date = None
+    for m in matches:
+        m_date = datetime.datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))
+        if m_date < ref and (last_date is None or m_date > last_date):
+            last_date = m_date
+    if last_date is None:
+        return None
+    return (ref - last_date).days
+
+
+def fatigue_factor(rest_days) -> float:
+    """
+    Une équipe qui enchaîne les matchs (ex: coupe d'Europe en semaine) a
+    statistiquement moins de jambes. Pénalité légère sur les buts attendus
+    en dessous de 4 jours de repos, modérée à 4 jours pile.
+    """
+    if rest_days is None:
+        return 1.0
+    if rest_days <= 3:
+        return 0.94
+    if rest_days == 4:
+        return 0.97
+    return 1.0
+
+
 def get_scheduled_match(team1_id: int, team2_id: int):
     """Trouve le match programmé entre les deux équipes (pour le H2H et la phase de compétition : finale, demi, etc.)."""
     data = api_get(f"teams/{team1_id}/matches", {"status": "SCHEDULED"})
@@ -500,6 +530,14 @@ def run_prediction_for_teams(team1: dict, team2: dict) -> dict:
     scheduled_match = get_scheduled_match(team1["id"], team2["id"])
     h2h = get_h2h(scheduled_match)
 
+    reference_date = scheduled_match["utcDate"] if scheduled_match else (
+        datetime.datetime.utcnow().replace(tzinfo=datetime.timezone.utc).isoformat()
+    )
+    rest_days1 = compute_rest_days(matches1, reference_date)
+    rest_days2 = compute_rest_days(matches2, reference_date)
+    fatigue1 = fatigue_factor(rest_days1)
+    fatigue2 = fatigue_factor(rest_days2)
+
     standing1 = get_standing(team1["id"], team1["competition_code"])
     standing2 = get_standing(team2["id"], team2["competition_code"])
     stakes_factor, stakes_label = analyze_match_context(
@@ -517,8 +555,8 @@ def run_prediction_for_teams(team1: dict, team2: dict) -> dict:
         lambda_home = lambda_home * 0.8 + h2h_share * 0.2
         lambda_away = lambda_away * 0.8 + h2h_share * 0.2
 
-    lambda_home *= stakes_factor
-    lambda_away *= stakes_factor
+    lambda_home *= stakes_factor * fatigue1
+    lambda_away *= stakes_factor * fatigue2
 
     matrix = build_score_matrix(lambda_home, lambda_away, rho)
     top_scores = sorted(matrix.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -533,7 +571,7 @@ def run_prediction_for_teams(team1: dict, team2: dict) -> dict:
         "home_scored": home_scored, "home_conceded": home_conceded,
         "away_scored": away_scored, "away_conceded": away_conceded,
         "h2h": h2h, "standing1": standing1, "standing2": standing2, "stakes_label": stakes_label,
-        "scheduled_match": scheduled_match,
+        "rest_days1": rest_days1, "rest_days2": rest_days2,
         "scheduled_match": scheduled_match,
         "top_scores": top_scores, "over_2_5": over_2_5, "under_2_5": 1 - over_2_5,
         "btts_yes": btts_yes, "btts_no": 1 - btts_yes,
@@ -601,6 +639,15 @@ def render_prediction(result: dict, subtitle: str | None = None) -> None:
         st.caption(f"🏆 {t1['name']} : {result['standing1']['rank']}e place ({result['standing1']['points']} pts) — "
                    f"{t2['name']} : {result['standing2']['rank']}e place ({result['standing2']['points']} pts)")
     st.caption(f"⚖️ Enjeu du match : {result['stakes_label']}")
+
+    rd1, rd2 = result.get("rest_days1"), result.get("rest_days2")
+    if rd1 is not None or rd2 is not None:
+        rd1_txt = f"{rd1} j" if rd1 is not None else "?"
+        rd2_txt = f"{rd2} j" if rd2 is not None else "?"
+        fatigue_note = ""
+        if (rd1 is not None and rd1 <= 3) or (rd2 is not None and rd2 <= 3):
+            fatigue_note = " ⚠️ calendrier chargé pris en compte"
+        st.caption(f"🔋 Repos : {t1['name']} {rd1_txt} — {t2['name']} {rd2_txt}{fatigue_note}")
 
     outcomes = [("home", result["home_win"], f"Victoire {t1['name']}"),
                 ("draw", result["draw"], "Match nul"),
@@ -708,3 +755,4 @@ st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systémati
 
 with tab_dashboard:
     render_dashboard()
+    
