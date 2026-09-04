@@ -1,14 +1,21 @@
 """
 recalibrate.py — Recalibration automatique de rho/alpha par championnat.
 
-Reprend la méthodologie de calibrate_per_league.py (grid search rho x alpha,
-évaluation par Brier score sur plus/moins 2.5, comparaison vs prédiction
-naïve) mais en continu : à lancer périodiquement (GitHub Action mensuelle)
-pour ré-ajuster league_settings.json à partir des matchs les plus récents.
+Calibre sur DEUX saisons combinées (saison en cours + précédente, glissant
+automatiquement d'une année à chaque exécution) plutôt qu'une seule, pour
+éviter le sur-ajustement qu'on avait détecté avec la version single-saison
+(des réglages qui semblaient bons sur une saison s'effondraient sur une autre).
 
-Ne remplace les valeurs en place que si la nouvelle calibration fait
-strictement mieux (Brier score plus bas) — sinon on garde l'ancien réglage,
-pour éviter qu'un petit échantillon récent ne dérègle le modèle.
+Objectif de sélection : le marché résultat du match (1X2), validé par
+backtest comme celui où le modèle a un vrai avantage — plus/moins 2.5 est
+gardé à titre informatif dans les logs, mais ne pilote plus le choix des
+réglages (backtesté comme non fiable, quel que soit le réglage).
+
+Sélection "robuste" : on ne retient pas la combinaison qui excelle sur une
+saison et s'effondre sur l'autre, mais celle qui minimise une moyenne
+pondérée entre la performance moyenne et la pire des deux saisons (même
+méthode que calibrate_robust.py). Le fichier est réécrit intégralement à
+chaque exécution (pas de comparaison fragile avec l'ancien snapshot).
 """
 
 import json
@@ -16,6 +23,7 @@ import math
 import os
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import requests
@@ -33,6 +41,20 @@ ALPHA_GRID = [0.4, 0.6, 0.8, 1.0]
 
 MIN_MATCHES_MIXED = 6
 MIN_MATCHES_VENUE = 4
+
+
+def current_seasons() -> list:
+    """
+    Les deux dernières saisons ENTIÈREMENT TERMINÉES à combiner pour la
+    calibration (jamais la saison en cours, trop peu de matchs en début de
+    saison pour être fiable). Glisse automatiquement d'une année à chaque
+    nouvelle saison. Ex: exécuté en mars 2027 (saison 2026-27 en cours)
+    -> saisons [2024, 2025] (les deux précédentes, complètes).
+    """
+    today = date.today()
+    current_season_start = today.year if today.month >= 7 else today.year - 1
+    last_completed = current_season_start - 1
+    return [last_completed - 1, last_completed]
 
 
 def get_api_key() -> str:
@@ -56,8 +78,8 @@ def api_get(endpoint: str, params: dict | None = None) -> dict:
     raise RuntimeError(f"Échec après plusieurs tentatives sur {endpoint}.")
 
 
-def fetch_season_matches(competition_code: str) -> list:
-    data = api_get(f"competitions/{competition_code}/matches", {"status": "FINISHED"})
+def fetch_season_matches(competition_code: str, season: int) -> list:
+    data = api_get(f"competitions/{competition_code}/matches", {"season": season, "status": "FINISHED"})
     matches = data.get("matches", [])
     matches.sort(key=lambda m: m["utcDate"])
     return matches
@@ -96,6 +118,14 @@ def build_score_matrix(lambda_home: float, lambda_away: float, rho: float) -> di
 def over_2_5_probability(lambda_home: float, lambda_away: float, rho: float) -> float:
     matrix = build_score_matrix(lambda_home, lambda_away, rho)
     return sum(p for (h, a), p in matrix.items() if h + a > 2.5)
+
+
+def outcome_probabilities(lambda_home: float, lambda_away: float, rho: float) -> tuple:
+    matrix = build_score_matrix(lambda_home, lambda_away, rho)
+    p_home = sum(p for (h, a), p in matrix.items() if h > a)
+    p_draw = sum(p for (h, a), p in matrix.items() if h == a)
+    p_away = sum(p for (h, a), p in matrix.items() if h < a)
+    return p_home, p_draw, p_away
 
 
 def team_form_before(matches: list, team_id: int, up_to_index: int, home_only: bool | None) -> dict:
@@ -144,10 +174,11 @@ def evaluate_settings(matches: list, rho: float, alpha: float) -> dict:
     """
     Backteste un couple (rho, alpha) sur tous les matchs de la saison en
     walk-forward (chaque match prédit uniquement avec les matchs qui le
-    précèdent). Retourne le Brier score sur plus/moins 2.5 et le nombre de
-    matchs utilisés.
+    précèdent). Retourne le Brier score sur le 1X2 (objectif de sélection,
+    validé par backtest) et sur plus/moins 2.5 (informatif seulement).
     """
-    brier_sum = 0.0
+    brier_1x2_sum = 0.0
+    brier_over_sum = 0.0
     n_evaluated = 0
 
     for i, m in enumerate(matches):
@@ -170,90 +201,128 @@ def evaluate_settings(matches: list, rho: float, alpha: float) -> dict:
         lambda_home = blended_value(mixed_home["avg_scored"], home_form["avg_scored"], home_form["played"], alpha)
         lambda_away = blended_value(mixed_away["avg_scored"], away_form["avg_scored"], away_form["played"], alpha)
 
+        p_home, p_draw, p_away = outcome_probabilities(lambda_home, lambda_away, rho)
+        actual_home = 1.0 if real_h > real_a else 0.0
+        actual_draw = 1.0 if real_h == real_a else 0.0
+        actual_away = 1.0 if real_h < real_a else 0.0
+        brier_1x2_sum += (p_home - actual_home) ** 2 + (p_draw - actual_draw) ** 2 + (p_away - actual_away) ** 2
+
         pred_over = over_2_5_probability(lambda_home, lambda_away, rho)
         actual_over = 1.0 if (real_h + real_a) > 2.5 else 0.0
+        brier_over_sum += (pred_over - actual_over) ** 2
 
-        brier_sum += (pred_over - actual_over) ** 2
         n_evaluated += 1
 
     if n_evaluated == 0:
-        return {"brier": None, "n": 0}
-    return {"brier": brier_sum / n_evaluated, "n": n_evaluated}
+        return {"brier_1x2": None, "brier_over": None, "n": 0}
+    return {"brier_1x2": brier_1x2_sum / n_evaluated, "brier_over": brier_over_sum / n_evaluated, "n": n_evaluated}
 
 
-def naive_baseline_brier(matches: list) -> float:
-    """Prédiction naïve : probabilité fixe = fréquence historique de over 2.5 sur la saison."""
-    overs = []
+def naive_baseline_brier_1x2(matches: list) -> float:
+    """Prédiction naïve 1X2 : probabilités fixes = fréquences historiques de la saison."""
+    outcomes = []
     for m in matches:
         score = m.get("score", {}).get("fullTime", {})
         h, a = score.get("home"), score.get("away")
         if h is None or a is None:
             continue
-        overs.append(1.0 if (h + a) > 2.5 else 0.0)
-    if not overs:
+        outcomes.append((1.0, 0.0, 0.0) if h > a else (0.0, 0.0, 1.0) if h < a else (0.0, 1.0, 0.0))
+    if not outcomes:
         return None
-    freq = sum(overs) / len(overs)
-    return sum((freq - o) ** 2 for o in overs) / len(overs)
+    n = len(outcomes)
+    freq_h = sum(o[0] for o in outcomes) / n
+    freq_d = sum(o[1] for o in outcomes) / n
+    freq_a = sum(o[2] for o in outcomes) / n
+    return sum((freq_h - h) ** 2 + (freq_d - d) ** 2 + (freq_a - a) ** 2 for h, d, a in outcomes) / n
 
 
-def calibrate_league(competition_code: str) -> dict:
+def calibrate_league(competition_code: str, seasons: list) -> dict:
     print(f"\n=== {competition_code} ===")
-    matches = fetch_season_matches(competition_code)
-    print(f"{len(matches)} matchs récupérés")
+    matches_by_season = {}
+    for season in seasons:
+        m = fetch_season_matches(competition_code, season)
+        print(f"  Saison {season} : {len(m)} matchs récupérés")
+        if m:
+            matches_by_season[season] = m
 
-    baseline = naive_baseline_brier(matches)
+    if len(matches_by_season) < len(seasons):
+        print("  Pas assez de saisons disponibles, championnat ignoré.")
+        return None
 
     best = None
     for rho in RHO_GRID:
         for alpha in ALPHA_GRID:
-            result = evaluate_settings(matches, rho, alpha)
-            if result["brier"] is None:
+            season_scores = {}
+            for season, matches in matches_by_season.items():
+                r = evaluate_settings(matches, rho, alpha)
+                if r["brier_1x2"] is None:
+                    continue
+                season_scores[season] = r
+            if len(season_scores) < len(matches_by_season):
                 continue
-            if best is None or result["brier"] < best["brier"]:
-                best = {"rho": rho, "alpha": alpha, "brier": result["brier"], "n": result["n"]}
+
+            briers_1x2 = [r["brier_1x2"] for r in season_scores.values()]
+            avg_score = sum(briers_1x2) / len(briers_1x2)
+            worst_score = max(briers_1x2)
+            objective = avg_score * 0.6 + worst_score * 0.4
+
+            if best is None or objective < best["objective"]:
+                best = {
+                    "rho": rho, "alpha": alpha, "objective": objective,
+                    "avg_brier_1x2": avg_score, "worst_brier_1x2": worst_score,
+                    "season_scores": season_scores,
+                }
 
     if best is None:
-        print("Pas assez de données pour calibrer, championnat ignoré.")
+        print("  Pas assez de données pour calibrer, championnat ignoré.")
         return None
 
-    beats_naive = baseline is not None and best["brier"] < baseline
-    baseline_str = f"{baseline:.4f}" if baseline is not None else "n/a"
-    print(f"Meilleur réglage : rho={best['rho']}, alpha={best['alpha']} "
-          f"(Brier={best['brier']:.4f}, naïf={baseline_str}, "
-          f"bat le naïf : {'OUI' if beats_naive else 'NON'})")
+    naive_scores = [naive_baseline_brier_1x2(m) for m in matches_by_season.values()]
+    naive_scores = [n for n in naive_scores if n is not None]
+    naive_avg = sum(naive_scores) / len(naive_scores) if naive_scores else None
+    beats_naive = naive_avg is not None and best["avg_brier_1x2"] < naive_avg
 
-    return {"rho": best["rho"], "alpha": best["alpha"], "brier": best["brier"], "beats_naive": beats_naive}
+    print(f"  Meilleur réglage robuste : rho={best['rho']}, alpha={best['alpha']}")
+    for season, r in sorted(best["season_scores"].items()):
+        print(f"    Saison {season} : Brier 1X2={r['brier_1x2']:.4f}  (plus/moins 2.5, informatif : {r['brier_over']:.4f})")
+    naive_str = f"{naive_avg:.4f}" if naive_avg is not None else "n/a"
+    print(f"  Moyenne 1X2={best['avg_brier_1x2']:.4f}  Pire saison={best['worst_brier_1x2']:.4f}  "
+          f"naïf={naive_str}  (bat le naïf : {'OUI' if beats_naive else 'NON'})")
+
+    return {
+        "rho": best["rho"], "alpha": best["alpha"],
+        "brier_1x2": best["avg_brier_1x2"], "beats_naive": beats_naive,
+        "seasons_used": seasons,
+    }
 
 
 def main():
-    if SETTINGS_PATH.exists():
-        current_settings = json.loads(SETTINGS_PATH.read_text())
-    else:
-        current_settings = {}
+    seasons = current_seasons()
+    print(f"Recalibration robuste — saisons combinées : {seasons}")
 
-    updated_settings = dict(current_settings)
+    updated_settings = {}
     changes = []
 
     for code in COMPETITIONS:
-        new = calibrate_league(code)
+        new = calibrate_league(code, seasons)
         if new is None:
             continue
-
-        old = current_settings.get(code)
-        # On ne remplace que si on a une comparaison possible et que c'est mieux,
-        # ou si on n'avait encore aucun réglage pour ce championnat.
-        if old is None or new["brier"] < old.get("brier", float("inf")):
-            updated_settings[code] = {"rho": new["rho"], "alpha": new["alpha"], "brier": new["brier"]}
-            changes.append(code)
+        updated_settings[code] = {
+            "rho": new["rho"], "alpha": new["alpha"],
+            "brier_1x2": new["brier_1x2"], "beats_naive": new["beats_naive"],
+            "seasons_used": new["seasons_used"],
+        }
+        changes.append(code)
 
     SETTINGS_PATH.write_text(json.dumps(updated_settings, indent=2))
 
     print("\n=== Résumé ===")
     if changes:
-        print(f"Réglages mis à jour pour : {', '.join(changes)}")
+        print(f"Réglages calibrés (saisons {seasons}) pour : {', '.join(changes)}")
     else:
-        print("Aucun réglage n'a été amélioré, league_settings.json inchangé.")
+        print("Aucun championnat n'a pu être calibré, league_settings.json inchangé.")
 
 
 if __name__ == "__main__":
     main()
+    
