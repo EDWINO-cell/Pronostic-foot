@@ -1,0 +1,92 @@
+{
+  "PL": {
+    "rho": -0.05,
+    "alpha": 0.6,
+    "brier_1x2": 0.6420493047139448,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "PD": {
+    "rho": 0.0,
+    "alpha": 0.6,
+    "brier_1x2": 0.6256543496756892,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "BL1": {
+    "rho": -0.13,
+    "alpha": 0.4,
+    "brier_1x2": 0.6265442525971037,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "SA": {
+    "rho": 0.0,
+    "alpha": 0.4,
+    "brier_1x2": 0.6133430683527905,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "FL1": {
+    "rho": 0.0,
+    "alpha": 0.4,
+    "brier_1x2": 0.6254470882264763,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "DED": {
+    "rho": -0.18,
+    "alpha": 0.6,
+    "brier_1x2": 0.627707806340216,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "PPL": {
+    "rho": -0.05,
+    "alpha": 0.6,
+    "brier_1x2": 0.6023585668987861,
+    "beats_naive": true,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "ELC": {
+    "rho": -0.05,
+    "alpha": 0.6,
+    "brier_1x2": 0.6640770890125978,
+    "beats_naive": false,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  },
+  "BSA": {
+    "rho": 0.0,
+    "alpha": 0.6,
+    "brier_1x2": 0.63893902433182,
+    "beats_naive": false,
+    "seasons_used": [
+      2024,
+      2025
+    ]
+  }
+}
