@@ -159,3 +159,7 @@ log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_
 68-332-over_under_2.5-2026-09-09T16:01:25.199989,2026-09-09T16:01:25.199989,2026-09-09T18:45:00Z,ELC,68,Norwich City FC,332,Birmingham City FC,over_under_2.5,over,0.5932776643405581,false,,,
 68-332-btts-2026-09-09T16:01:25.199989,2026-09-09T16:01:25.199989,2026-09-09T18:45:00Z,ELC,68,Norwich City FC,332,Birmingham City FC,btts,oui,0.62201121244079,false,,,
 68-332-score_exact_top1-2026-09-09T16:01:25.199989,2026-09-09T16:01:25.199989,2026-09-09T18:45:00Z,ELC,68,Norwich City FC,332,Birmingham City FC,score_exact_top1,1-1,0.11475054298109995,false,,,
+64-78-1N2-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,1N2,1,0.4255875124634269,false,,,
+64-78-over_under_2.5-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,over_under_2.5,over,0.6200104264781334,false,,,
+64-78-btts-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,btts,oui,0.6399621807400447,false,,,
+64-78-score_exact_top1-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,score_exact_top1,1-1,0.10914765065172302,false,,,
