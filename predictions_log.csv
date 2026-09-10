@@ -163,3 +163,7 @@ log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_
 64-78-over_under_2.5-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,over_under_2.5,over,0.6200104264781334,false,,,
 64-78-btts-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,btts,oui,0.6399621807400447,false,,,
 64-78-score_exact_top1-2026-09-09T17:41:19.137098,2026-09-09T17:41:19.137098,2026-09-09T19:00:00Z,PL,64,Liverpool FC,78,Club Atlético de Madrid,score_exact_top1,1-1,0.10914765065172302,false,,,
+9136-5613-1N2-2026-09-10T17:00:47.776849,2026-09-10T17:00:47.776849,2026-09-10T19:15:00Z,PPL,9136,CF Estrela da Amadora,5613,Sporting Clube de Braga,1N2,2,0.40534626760304787,false,,,
+9136-5613-over_under_2.5-2026-09-10T17:00:47.776849,2026-09-10T17:00:47.776849,2026-09-10T19:15:00Z,PPL,9136,CF Estrela da Amadora,5613,Sporting Clube de Braga,over_under_2.5,over,0.6938962786369398,false,,,
+9136-5613-btts-2026-09-10T17:00:47.776849,2026-09-10T17:00:47.776849,2026-09-10T19:15:00Z,PPL,9136,CF Estrela da Amadora,5613,Sporting Clube de Braga,btts,oui,0.6986690945502582,false,,,
+9136-5613-score_exact_top1-2026-09-10T17:00:47.776849,2026-09-10T17:00:47.776849,2026-09-10T19:15:00Z,PPL,9136,CF Estrela da Amadora,5613,Sporting Clube de Braga,score_exact_top1,1-1,0.09377862676075119,false,,,
