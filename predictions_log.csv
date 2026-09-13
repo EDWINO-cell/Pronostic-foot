@@ -247,3 +247,7 @@ log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_
 92-78-over_under_2.5-2026-09-13T13:30:52.855769,2026-09-13T13:30:52.855769,2026-09-13T19:00:00Z,PD,92,Real Sociedad de Fútbol,78,Club Atlético de Madrid,over_under_2.5,over,0.5893070591464589,false,,,
 92-78-btts-2026-09-13T13:30:52.855769,2026-09-13T13:30:52.855769,2026-09-13T19:00:00Z,PD,92,Real Sociedad de Fútbol,78,Club Atlético de Madrid,btts,oui,0.6129778172862212,false,,,
 92-78-score_exact_top1-2026-09-13T13:30:52.855769,2026-09-13T13:30:52.855769,2026-09-13T19:00:00Z,PD,92,Real Sociedad de Fútbol,78,Club Atlético de Madrid,score_exact_top1,1-1,0.10986724523946595,false,,,
+1783-1779-1N2-2026-09-13T19:15:08.264450,2026-09-13T19:15:08.264450,2026-09-13T20:30:00Z,BSA,1783,CR Flamengo,1779,SC Corinthians Paulista,1N2,1,0.5287638262529525,false,,,
+1783-1779-over_under_2.5-2026-09-13T19:15:08.264450,2026-09-13T19:15:08.264450,2026-09-13T20:30:00Z,BSA,1783,CR Flamengo,1779,SC Corinthians Paulista,over_under_2.5,under,0.5529872854559913,false,,,
+1783-1779-btts-2026-09-13T19:15:08.264450,2026-09-13T19:15:08.264450,2026-09-13T20:30:00Z,BSA,1783,CR Flamengo,1779,SC Corinthians Paulista,btts,non,0.5303527800477992,false,,,
+1783-1779-score_exact_top1-2026-09-13T19:15:08.264450,2026-09-13T19:15:08.264450,2026-09-13T20:30:00Z,BSA,1783,CR Flamengo,1779,SC Corinthians Paulista,score_exact_top1,1-0,0.13301598766569803,false,,,
