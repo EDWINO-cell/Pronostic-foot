@@ -255,3 +255,7 @@ log_id,logged_at,match_date,competition_code,team1_id,team1_name,team2_id,team2_
 341-67-over_under_2.5-2026-09-14T16:08:32.898502,2026-09-14T16:08:32.898502,2026-09-14T19:00:00Z,PL,341,Leeds United FC,67,Newcastle United FC,over_under_2.5,under,0.5156158163631172,false,,,
 341-67-btts-2026-09-14T16:08:32.898502,2026-09-14T16:08:32.898502,2026-09-14T19:00:00Z,PL,341,Leeds United FC,67,Newcastle United FC,btts,oui,0.5373614005320317,false,,,
 341-67-score_exact_top1-2026-09-14T16:08:32.898502,2026-09-14T16:08:32.898502,2026-09-14T19:00:00Z,PL,341,Leeds United FC,67,Newcastle United FC,score_exact_top1,1-1,0.13136928573147003,false,,,
+94-90-1N2-2026-09-14T16:15:59.211634,2026-09-14T16:15:59.211634,2026-09-14T19:00:00Z,PD,94,Villarreal CF,90,Real Betis Balompié,1N2,2,0.438807005018891,false,,,
+94-90-over_under_2.5-2026-09-14T16:15:59.211634,2026-09-14T16:15:59.211634,2026-09-14T19:00:00Z,PD,94,Villarreal CF,90,Real Betis Balompié,over_under_2.5,over,0.6604280872761517,false,,,
+94-90-btts-2026-09-14T16:15:59.211634,2026-09-14T16:15:59.211634,2026-09-14T19:00:00Z,PD,94,Villarreal CF,90,Real Betis Balompié,btts,oui,0.6657515133220799,false,,,
+94-90-score_exact_top1-2026-09-14T16:15:59.211634,2026-09-14T16:15:59.211634,2026-09-14T19:00:00Z,PD,94,Villarreal CF,90,Real Betis Balompié,score_exact_top1,1-1,0.0959967986793117,false,,,
