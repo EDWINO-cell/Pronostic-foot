@@ -25,6 +25,7 @@ import streamlit as st
 
 from logging_predictions import log_prediction
 from dashboard import render_dashboard
+from gemini_context import render_gemini_section
 
 API_BASE_URL = "https://api.football-data.org/v4"
 REQUEST_DELAY_SECONDS = 6.5  # le plan gratuit limite à 10 requêtes/minute
@@ -600,7 +601,7 @@ def get_upcoming_fixtures(days: int = 7) -> list:
 
 # ---------- Interface ----------
 
-def render_prediction(result: dict, subtitle: str | None = None) -> None:
+def render_prediction(result: dict, subtitle: str | None = None, key_prefix: str = "pred") -> None:
     t1, t2 = result["team1"], result["team2"]
 
     if result["low_data_warning"]:
@@ -672,6 +673,8 @@ def render_prediction(result: dict, subtitle: str | None = None) -> None:
         st.caption("⚠️ Marché moins fiable sur le Brasileirão d'après le backtesting "
                    "(n'apporte pas d'avantage net par rapport à la fréquence historique).")
 
+    render_gemini_section(result, key_prefix)
+
 
 st.set_page_config(page_title="Robot de pronostic foot", page_icon="⚽", layout="centered")
 
@@ -707,7 +710,14 @@ with tab_manual:
                 t1, t2 = result["team1"], result["team2"]
                 subtitle = (f"Trouvé pour « {team1_input.strip()} » → {t1['name']} ({t1['competition_code']})  |  "
                             f"« {team2_input.strip()} » → {t2['name']} ({t2['competition_code']})")
-                render_prediction(result, subtitle)
+                st.session_state["manual_view"] = {"result": result, "subtitle": subtitle}
+            else:
+                st.session_state.pop("manual_view", None)
+
+    # Rendu hors du bloc du bouton : survit aux reruns (ex. clic sur « Analyser le contexte »)
+    if st.session_state.get("manual_view"):
+        view = st.session_state["manual_view"]
+        render_prediction(view["result"], view["subtitle"], key_prefix="manual")
 
 with tab_upcoming:
     st.caption("Matchs programmés dans les 7 prochains jours, tous championnats couverts confondus.")
@@ -740,13 +750,18 @@ with tab_upcoming:
     if st.session_state.get("selected_fixture_data"):
         st.divider()
         teams = st.session_state["selected_fixture_data"]
-        with st.spinner("Analyse en cours..."):
-            try:
-                result = run_prediction_for_teams(teams["home"], teams["away"])
-                log_prediction(result)
-                render_prediction(result)
-            except RuntimeError as e:
-                st.error(f"Erreur de connexion à l'API : {e}")
+        fx_id = st.session_state.get("selected_fixture")
+        cache_key = f"fx_result_{fx_id}"
+        if cache_key not in st.session_state:
+            with st.spinner("Analyse en cours..."):
+                try:
+                    fx_result = run_prediction_for_teams(teams["home"], teams["away"])
+                    log_prediction(fx_result)
+                    st.session_state[cache_key] = fx_result
+                except RuntimeError as e:
+                    st.error(f"Erreur de connexion à l'API : {e}")
+        if cache_key in st.session_state:
+            render_prediction(st.session_state[cache_key], key_prefix=f"fx{fx_id}")
 
 st.divider()
 st.caption("⚠️ Modèle statistique à titre indicatif. Ne bat pas systématiquement une prédiction "
