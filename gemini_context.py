@@ -13,16 +13,20 @@ les prédictions du modèle statistique seul.
 Configuration (Streamlit Secrets) :
     GEMINI_API_KEY = "..."          # obligatoire
     GEMINI_MODEL   = "gemini-3.8-flash"   # optionnel, à ajuster selon AI Studio
+    GEMINI_FALLBACK_MODEL = "..."         # optionnel : modèle de secours si le principal est saturé
 """
 import json
 import os
 import re
+import time
 
 import requests
 
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 DEFAULT_MODEL = "gemini-3.8-flash"
-REQUEST_TIMEOUT_SECONDS = 60
+REQUEST_TIMEOUT_SECONDS = 40
+MAX_ATTEMPTS = 3                 # essais par modèle en cas de surcharge / lenteur
+RETRY_WAITS = (2, 5)              # secondes d'attente entre deux essais
 
 MAX_TOTAL_SHIFT = 0.12                      # plafond global : 12 points de probabilité
 POINTS_BY_FORCE = {1: 0.02, 2: 0.04, 3: 0.06}
@@ -126,7 +130,31 @@ Réponds UNIQUEMENT par un objet JSON valide, sans texte autour, de cette forme 
 # ---------------------------------------------------------------------------
 # Appel API + parsing robuste
 # ---------------------------------------------------------------------------
-def call_gemini(prompt: str, api_key: str, model: str) -> str:
+class GeminiAPIError(RuntimeError):
+    """Erreur API avec indication de ce qu'il est utile de tenter ensuite."""
+    def __init__(self, message, retryable=False, fallbackable=False):
+        super().__init__(message)
+        self.retryable = retryable          # réessayer le même modèle peut aider
+        self.fallbackable = fallbackable    # essayer un autre modèle peut aider
+
+
+def list_flash_models(api_key: str) -> list:
+    """Noms de modèles 'flash' utilisables avec generateContent (aide au diagnostic d'un 404)."""
+    try:
+        r = requests.get(f"{GEMINI_BASE_URL}/models", params={"pageSize": 100},
+                         headers={"x-goog-api-key": api_key}, timeout=15)
+        if r.status_code != 200:
+            return []
+        names = []
+        for m in r.json().get("models", []):
+            if "generateContent" in (m.get("supportedGenerationMethods") or []) and "flash" in m.get("name", ""):
+                names.append(m["name"].replace("models/", ""))
+        return names[:8]
+    except (requests.RequestException, ValueError):
+        return []
+
+
+def _call_once(prompt: str, api_key: str, model: str) -> str:
     url = f"{GEMINI_BASE_URL}/models/{model}:generateContent"
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -137,33 +165,65 @@ def call_gemini(prompt: str, api_key: str, model: str) -> str:
             url, headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
             json=body, timeout=REQUEST_TIMEOUT_SECONDS,
         )
+    except requests.Timeout:
+        raise GeminiAPIError(f"délai dépassé ({REQUEST_TIMEOUT_SECONDS}s) avec « {model} »",
+                             retryable=True, fallbackable=True)
     except requests.RequestException as e:
-        raise RuntimeError(f"connexion impossible à l'API Gemini ({e})")
+        raise GeminiAPIError(f"connexion impossible à l'API Gemini ({e})", retryable=True, fallbackable=True)
 
-    if response.status_code != 200:
+    status = response.status_code
+    if status != 200:
         try:
             detail = response.json().get("error", {}).get("message", response.text[:200])
         except ValueError:
             detail = response.text[:200]
-        hint = ""
-        if response.status_code == 404:
-            hint = f" — le modèle « {model} » n'existe pas : vérifie son nom dans Google AI Studio " \
-                   f"et mets-le dans le secret GEMINI_MODEL."
-        elif response.status_code == 429:
-            hint = " — quota gratuit atteint, réessaie plus tard."
-        elif response.status_code in (400, 403):
-            hint = " — vérifie la clé GEMINI_API_KEY et le nom du modèle."
-        raise RuntimeError(f"Gemini a répondu {response.status_code} : {detail}{hint}")
+        msg = f"Gemini a répondu {status} avec « {model} » : {detail}"
+        if status in (500, 502, 503, 504):
+            raise GeminiAPIError(msg, retryable=True, fallbackable=True)
+        if status == 429:
+            raise GeminiAPIError(msg + " — quota gratuit atteint pour ce modèle.", fallbackable=True)
+        if status == 404:
+            available = list_flash_models(api_key)
+            hint = (f" — modèles disponibles pour ta clé : {', '.join(available)}. "
+                    "Mets l'un d'eux dans le secret GEMINI_MODEL." if available else
+                    " — le nom du modèle est refusé : vérifie-le dans Google AI Studio et mets-le "
+                    "dans le secret GEMINI_MODEL.")
+            raise GeminiAPIError(msg + hint, fallbackable=True)
+        raise GeminiAPIError(msg + " — vérifie la clé GEMINI_API_KEY et le nom du modèle.")
 
     data = response.json()
     candidates = data.get("candidates") or []
     if not candidates:
-        raise RuntimeError("Gemini n'a renvoyé aucune réponse (contenu bloqué ou vide).")
+        raise GeminiAPIError("Gemini n'a renvoyé aucune réponse (contenu bloqué ou vide).", fallbackable=True)
     parts = (candidates[0].get("content") or {}).get("parts") or []
     text = "".join(p.get("text", "") for p in parts).strip()
     if not text:
-        raise RuntimeError("Gemini a renvoyé une réponse vide.")
+        raise GeminiAPIError("Gemini a renvoyé une réponse vide.", fallbackable=True)
     return text
+
+
+def call_gemini(prompt: str, api_key: str, model: str):
+    """Appelle Gemini avec réessais, puis le modèle de secours s'il est configuré.
+    Renvoie (texte, modèle_utilisé)."""
+    fallback = _secret("GEMINI_FALLBACK_MODEL")
+    models = [model] + ([fallback] if fallback and fallback != model else [])
+    last = None
+    for m in models:
+        for attempt in range(MAX_ATTEMPTS):
+            try:
+                return _call_once(prompt, api_key, m), m
+            except GeminiAPIError as e:
+                last = e
+                if e.retryable and attempt < MAX_ATTEMPTS - 1:
+                    time.sleep(RETRY_WAITS[attempt])
+                    continue
+                break
+        if not last.fallbackable:
+            break
+    if last.retryable:
+        raise RuntimeError(f"{last} (après {MAX_ATTEMPTS} essais). Le serveur est surchargé ou trop lent : "
+                           "réessaie dans quelques minutes.")
+    raise RuntimeError(str(last))
 
 
 def extract_json(text: str) -> dict:
@@ -235,7 +295,7 @@ def analyze_with_gemini(result: dict, user_notes: str) -> dict:
     if not api_key:
         raise RuntimeError("clé GEMINI_API_KEY absente des secrets Streamlit.")
     prompt = build_prompt(build_facts(result), user_notes)
-    text = call_gemini(prompt, api_key, get_gemini_model())
+    text, used_model = call_gemini(prompt, api_key, get_gemini_model())
     try:
         analysis = validate_analysis(extract_json(text))
     except (ValueError, json.JSONDecodeError) as e:
@@ -243,7 +303,7 @@ def analyze_with_gemini(result: dict, user_notes: str) -> dict:
     capped, raw = compute_shift(analysis["facteurs"])
     adjusted = apply_shift(result, capped)
     return {"analysis": analysis, "raw_shift": raw, "capped_shift": capped, "adjusted": adjusted,
-            "model": get_gemini_model()}
+            "model": used_model}
 
 
 # ---------------------------------------------------------------------------
